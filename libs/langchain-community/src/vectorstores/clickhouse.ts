@@ -260,36 +260,23 @@ export class ClickHouseStore extends VectorStore {
    * @returns The SQL query string.
    */
   private buildInsertQuery(vectors: number[][], documents: Document[]): string {
-    const columnsStr = Object.values(
-      Object.fromEntries(
-        Object.entries(this.columnMap).filter(
-          ([key]) => key !== this.columnMap.uuid
-        )
-      )
-    ).join(", ");
+  const cols = Object.values(
+    Object.fromEntries(Object.entries(this.columnMap).filter(([k]) => k !== this.columnMap.uuid))
+  ).join(", ");
 
-    const placeholders = vectors.map(() => "(?, ?, ?, ?)").join(", ");
-    const values = [];
+  const values: string[] = vectors.map((vector, i) => {
+    const idVal = `UUIDString('${uuid.v4()}')`; // ClickHouse will parse
+    const docVal = `'${this.escapeString(documents[i].pageContent)}'`;
+    const embeddingVal = `[${vector.join(",")}]`; // array literal
+    const metaVal = `'${this.escapeString(JSON.stringify(documents[i].metadata))}'`;
+    return `(${idVal}, ${docVal}, ${embeddingVal}, ${metaVal})`;
+  });
 
-    for (let i = 0; i < vectors.length; i += 1) {
-      const vector = vectors[i];
-      const document = documents[i];
-      values.push(
-        uuid.v4(),
-        this.escapeString(document.pageContent),
-        JSON.stringify(vector),
-        JSON.stringify(document.metadata)
-      );
-    }
-
-    const insertQueryStr = `
-      INSERT INTO TABLE ${this.database}.${this.table}(${columnsStr}) 
-      VALUES ${placeholders}
-    `;
-
-    const insertQuery = format(insertQueryStr, values);
-    return insertQuery;
-  }
+  return `
+    INSERT INTO ${this.database}.${this.table} (${cols})
+    VALUES ${values.join(",\n")}
+  `;
+}
 
   private escapeString(str: string): string {
     return str.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
