@@ -259,15 +259,15 @@ export class ClickHouseStore extends VectorStore {
    * @param documents The documents to insert.
    * @returns The SQL query string.
    */
-  private buildInsertQuery(vectors: number[][], documents: Document[]): string {
+private buildInsertQuery(vectors: number[][], documents: Document[]): string {
   const cols = Object.values(
     Object.fromEntries(Object.entries(this.columnMap).filter(([k]) => k !== this.columnMap.uuid))
   ).join(", ");
 
-  const values: string[] = vectors.map((vector, i) => {
-    const idVal = `UUIDString('${uuid.v4()}')`; // ClickHouse will parse
+  const values = vectors.map((vector, i) => {
+    const idVal = `toUUID('${uuid.v4()}')`;
     const docVal = `'${this.escapeString(documents[i].pageContent)}'`;
-    const embeddingVal = `[${vector.join(",")}]`; // array literal
+    const embeddingVal = `[${vector.join(",")}]`;
     const metaVal = `'${this.escapeString(JSON.stringify(documents[i].metadata))}'`;
     return `(${idVal}, ${docVal}, ${embeddingVal}, ${metaVal})`;
   });
