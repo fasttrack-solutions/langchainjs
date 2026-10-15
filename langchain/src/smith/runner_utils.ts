@@ -518,6 +518,64 @@ const loadExamples = async ({
   };
 };
 
+function runEpochMs(value: number | string | undefined): number | undefined {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function evaluationResultsOf(
+  feedbackResult: Awaited<ReturnType<RunEvaluator["evaluateRun"]>>
+): EvaluationResult[] {
+  if (Array.isArray(feedbackResult)) {
+    return feedbackResult;
+  }
+  if ("results" in feedbackResult) {
+    return feedbackResult.results;
+  }
+  return [feedbackResult];
+}
+
+// LangSmith 0.6 removed Client.evaluateRun. Keep the same feedback logging.
+async function evaluateRunWithClient(
+  client: Client,
+  run: Run,
+  evaluator: RunEvaluator,
+  referenceExample?: Example
+): Promise<Feedback> {
+  let example = referenceExample;
+  if (run.reference_example_id != null) {
+    example = await client.readExample(run.reference_example_id);
+  }
+  const feedbackResult = await evaluator.evaluateRun(run, example);
+  const results = evaluationResultsOf(feedbackResult);
+  const feedbacks: Feedback[] = [];
+  for (const res of results) {
+    feedbacks.push(
+      await client.createFeedback(res.targetRunId ?? run.id, res.key, {
+        score: res.score,
+        value: res.value,
+        comment: res.comment,
+        correction: res.correction,
+        sourceInfo: res.evaluatorInfo,
+        sourceRunId: res.sourceRunId,
+        feedbackConfig: res.feedbackConfig,
+        feedbackSourceType: "model",
+      })
+    );
+  }
+  const feedback = feedbacks[0];
+  if (!feedback) {
+    throw new Error("Evaluator returned no feedback");
+  }
+  return feedback;
+}
+
 const applyEvaluators = async ({
   evaluation,
   runs,
@@ -558,18 +616,15 @@ const applyEvaluators = async ({
       caller.call(async () => {
         const evaluatorResults = await Promise.allSettled(
           evaluators.map((evaluator) =>
-            client.evaluateRun(run, evaluator, {
-              referenceExample: examples[i],
-              loadChildRuns: false,
-            })
+            evaluateRunWithClient(client, run, evaluator, examples[i])
           )
         );
         progress.increment();
+        const end = runEpochMs(run?.end_time);
+        const start = runEpochMs(run?.start_time);
         return {
           execution_time:
-            run?.end_time && run.start_time
-              ? run.end_time - run.start_time
-              : undefined,
+            end != null && start != null ? end - start : undefined,
           feedback: evaluatorResults.map((evalResult) =>
             evalResult.status === "fulfilled"
               ? evalResult.value
