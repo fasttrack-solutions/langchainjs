@@ -7,6 +7,7 @@ import {
   mapStoredMessagesToChatMessages,
 } from "@langchain/core/messages";
 import PostgresEngine from "./engine.js";
+import { sqlIdent, sqlQuote } from "./sql_safety.js";
 
 export interface PostgresChatMessageHistoryInput {
   engine: PostgresEngine;
@@ -59,7 +60,9 @@ export class PostgresChatMessageHistory extends BaseChatMessageHistory {
     tableName: string,
     schemaName: string = "public"
   ) {
-    const query = `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${tableName}' AND table_schema = '${schemaName}'`;
+    const query = `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = ${sqlQuote(
+      tableName
+    )} AND table_schema = ${sqlQuote(schemaName)}`;
     const { rows } = await engine.pool.raw(query);
     const columnNames: string[] = [];
 
@@ -105,7 +108,13 @@ export class PostgresChatMessageHistory extends BaseChatMessageHistory {
    * Returns a list of messages stored in the store.
    */
   async getMessages(): Promise<BaseMessage[]> {
-    const query = `SELECT data, type FROM "${this.schemaName}"."${this.tableName}" WHERE session_id = :session_id ORDER BY id;`;
+    const query = `SELECT data, type FROM "${sqlIdent(
+      this.schemaName,
+      "schema"
+    )}"."${sqlIdent(
+      this.tableName,
+      "table"
+    )}" WHERE session_id = :session_id ORDER BY id;`;
     const values: { [key: string]: string } = {
       session_id: this.sessionId,
     };
@@ -131,7 +140,13 @@ export class PostgresChatMessageHistory extends BaseChatMessageHistory {
    * @param {BaseMessage} message Message to be added to the store
    */
   async addMessage(message: BaseMessage): Promise<void> {
-    const query = `INSERT INTO "${this.schemaName}"."${this.tableName}"("session_id", "data", "type") VALUES (:session_id, :data, :type)`;
+    const query = `INSERT INTO "${sqlIdent(
+      this.schemaName,
+      "schema"
+    )}"."${sqlIdent(
+      this.tableName,
+      "table"
+    )}"("session_id", "data", "type") VALUES (:session_id, :data, :type)`;
     const values: { [key: string]: string } = {
       session_id: this.sessionId,
       data: JSON.stringify(message.toDict()),
@@ -155,7 +170,10 @@ export class PostgresChatMessageHistory extends BaseChatMessageHistory {
    * Remove all messages from the store.
    */
   async clear(): Promise<void> {
-    const query = `DELETE FROM "${this.schemaName}"."${this.tableName}" WHERE session_id = :session_id;`;
+    const query = `DELETE FROM "${sqlIdent(
+      this.schemaName,
+      "schema"
+    )}"."${sqlIdent(this.tableName, "table")}" WHERE session_id = :session_id;`;
     const values: { [key: string]: string } = {
       session_id: this.sessionId,
     };

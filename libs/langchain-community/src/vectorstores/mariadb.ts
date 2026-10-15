@@ -598,12 +598,26 @@ export class MariaDBStore extends VectorStore {
       const [filterPart, params] = this.filterConverter(filter);
       if (filterPart.length === 0) throw new Error("Wrong filter.");
       await this.pool.query(
-        `DELETE FROM ${this.computedTableName} WHERE ${filterPart} ${
-          this.collectionId ? " AND collection_id = ?" : ""
-        }`,
+        `DELETE FROM ${this.computedTableName} WHERE ${this.jsonKeyFilter(
+          filterPart
+        )} ${this.collectionId ? " AND collection_id = ?" : ""}`,
         [...params, this.collectionId]
       );
     }
+  }
+
+  private metadataKey(key: string): string {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      throw new Error("Invalid metadata filter key");
+    }
+    return key;
+  }
+
+  private jsonKeyFilter(filterPart: string): string {
+    if (/[\0;]|--|\/\*|\*\//.test(filterPart)) {
+      throw new Error("Invalid SQL filter");
+    }
+    return filterPart;
   }
 
   private filterConverter(filter?: Record<string, unknown>): [string, any[]] {
@@ -645,11 +659,9 @@ export class MariaDBStore extends VectorStore {
 
             const placeholders = realvalue.map(() => "?").join(",");
             sqlFilterPart.push(
-              `JSON_VALUE(${
-                this.metadataColumnName
-              }, '$.${key}') ${STANDARD_LIST_OPERATOR.get(
-                type
-              )} (${placeholders})`
+              `JSON_VALUE(${this.metadataColumnName}, '$.${this.metadataKey(
+                key
+              )}') ${STANDARD_LIST_OPERATOR.get(type)} (${placeholders})`
             );
             parameters.push(...realvalue);
           } else if (GROUP_OPERATORS.has(type)) {
@@ -658,9 +670,9 @@ export class MariaDBStore extends VectorStore {
             );
           } else if (SUPPORTED_OPERATORS.has(type)) {
             sqlFilterPart.push(
-              `JSON_VALUE(${
-                this.metadataColumnName
-              }, '$.${key}') ${SUPPORTED_OPERATORS.get(type)} ?`
+              `JSON_VALUE(${this.metadataColumnName}, '$.${this.metadataKey(
+                key
+              )}') ${SUPPORTED_OPERATORS.get(type)} ?`
             );
             parameters.push(realvalue);
           } else {
@@ -671,7 +683,9 @@ export class MariaDBStore extends VectorStore {
         }
       } else {
         sqlFilterPart.push(
-          `JSON_VALUE(${this.metadataColumnName}, '$.${key}') = ?`
+          `JSON_VALUE(${this.metadataColumnName}, '$.${this.metadataKey(
+            key
+          )}') = ?`
         );
         parameters.push(value);
       }

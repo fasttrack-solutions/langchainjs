@@ -1,6 +1,7 @@
 import { Document } from "@langchain/core/documents";
 import { BaseDocumentLoader } from "@langchain/core/document_loaders/base";
 import PostgresEngine from "./engine.js";
+import { sqlIdent, sqlPredicate } from "./sql_safety.js";
 import {
   textFormatter,
   csvFormatter,
@@ -178,9 +179,12 @@ export class PostgresLoader extends BaseDocumentLoader {
       }
     }
 
-    let queryStmt = query;
+    let queryStmt = query ? sqlPredicate(query) : query;
     if (!queryStmt) {
-      queryStmt = `SELECT * FROM "${schemaName}"."${tableName}"`;
+      queryStmt = `SELECT * FROM "${sqlIdent(
+        schemaName,
+        "schema"
+      )}"."${sqlIdent(tableName, "table")}"`;
     }
 
     let result;

@@ -973,8 +973,11 @@ test("LangChain V2 tracer creates and updates runs with replicas", async () => {
   const referenceExampleId = "00000000-0000-0000-0000-000000000000";
   const tracer = new LangChainTracer({
     replicas: [
-      [projectNames[0], { reference_example_id: referenceExampleId }],
-      [projectNames[1], undefined],
+      {
+        projectName: projectNames[0],
+        updates: { reference_example_id: referenceExampleId },
+      },
+      { projectName: projectNames[1] },
     ],
   });
   const child = traceable(

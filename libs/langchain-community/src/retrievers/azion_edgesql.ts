@@ -4,6 +4,13 @@ import { Document } from "@langchain/core/documents";
 import { BaseRetriever, BaseRetrieverInput } from "@langchain/core/retrievers";
 import { SystemMessage, HumanMessage } from "@langchain/core/messages";
 import { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import {
+  sqlIdent,
+  sqlInt,
+  sqlNumber,
+  sqlPredicate,
+  sqlQuote,
+} from "../utils/sql_safety.js";
 
 /**
  * Represents a filter condition for querying the Azion database
@@ -270,20 +277,23 @@ export class AzionRetriever extends BaseRetriever {
       rowsNumber += this.ftsK;
     }
 
+    const safeFilters = sqlPredicate(filters);
+    const ftsTable = sqlIdent(this.ftsTable);
+    const vectorTable = sqlIdent(this.vectorTable);
+    const limit = sqlInt(rowsNumber);
+    const vectorLiteral = embeddedQuery.map((n) => sqlNumber(n)).join(",");
     const ftsQuery = `
       SELECT id, content, ${metadata.replace("hybrid", "fts")}
-      FROM ${this.ftsTable} 
-      WHERE ${filters} ${this.ftsTable} MATCH '${queryEntities}'
+      FROM ${ftsTable} 
+      WHERE ${safeFilters} ${ftsTable} MATCH ${sqlQuote(queryEntities)}
       ORDER BY rank 
-      LIMIT ${rowsNumber}
+      LIMIT ${limit}
     `;
 
     const similarityQuery = `
       SELECT id, content, ${metadata.replace("hybrid", "similarity")}
-      FROM ${this.vectorTable}  
-      WHERE ${filters} rowid IN vector_top_k('${
-      this.vectorTable
-    }_idx', vector('[${embeddedQuery}]'), ${rowsNumber})
+      FROM ${vectorTable}  
+      WHERE ${safeFilters} rowid IN vector_top_k('${vectorTable}_idx', vector('[${vectorLiteral}]'), ${limit})
     `;
 
     return { ftsQuery, similarityQuery };

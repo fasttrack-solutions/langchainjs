@@ -4,6 +4,12 @@ import { ClickHouseClient, createClient } from "@clickhouse/client";
 import type { EmbeddingsInterface } from "@langchain/core/embeddings";
 import { VectorStore } from "@langchain/core/vectorstores";
 import { Document } from "@langchain/core/documents";
+import {
+  sqlIdent,
+  sqlInt,
+  sqlNumber,
+  sqlPredicate,
+} from "../utils/sql_safety.js";
 
 /**
  * Arguments for the MyScaleStore class, which include the host, port,
@@ -302,13 +308,20 @@ export class MyScaleStore extends VectorStore {
   ): string {
     const order = this.metric === "IP" ? "DESC" : "ASC";
 
-    const whereStr = filter ? `PREWHERE ${filter.whereStr}` : "";
+    const whereStr = filter?.whereStr
+      ? `PREWHERE ${sqlPredicate(filter.whereStr)}`
+      : "";
+    const vectorLiteral = query.map((n) => sqlNumber(n)).join(",");
     return `
-      SELECT ${this.columnMap.text} AS text, ${this.columnMap.metadata} AS metadata, dist
-      FROM ${this.database}.${this.table}
+      SELECT ${sqlIdent(this.columnMap.text)} AS text, ${sqlIdent(
+      this.columnMap.metadata
+    )} AS metadata, dist
+      FROM ${sqlIdent(this.database)}.${sqlIdent(this.table)}
       ${whereStr}
-      ORDER BY distance(${this.columnMap.vector}, [${query}]) AS dist ${order}
-      LIMIT ${k}
+      ORDER BY distance(${sqlIdent(
+        this.columnMap.vector
+      )}, [${vectorLiteral}]) AS dist ${order}
+      LIMIT ${sqlInt(k)}
     `;
   }
 }

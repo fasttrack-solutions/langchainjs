@@ -13,6 +13,50 @@ import fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 
+const CQL_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const CQL_TYPE = /^[A-Za-z_][A-Za-z0-9_<> ,]*(\([0-9,]+\))?$/;
+const CQL_OPERATOR =
+  /^(=|<|>|<=|>=|!=|IN|CONTAINS KEY|CONTAINS|LIKE|ASC|DESC)$/i;
+const CQL_SELECT =
+  /^[A-Za-z_][A-Za-z0-9_]*(\([A-Za-z_][A-Za-z0-9_]*(,\s*\?)?\))?$/;
+const CQL_INDEX_VALUE =
+  /^\(\s*[A-Za-z_][A-Za-z0-9_]*(\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\))?\s*\)$/;
+
+function cqlIdent(value: string, label = "identifier"): string {
+  if (!CQL_IDENT.test(value)) {
+    throw new Error(`Invalid CQL ${label}`);
+  }
+  return value;
+}
+
+function cqlType(value: string): string {
+  if (!CQL_TYPE.test(value.trim())) {
+    throw new Error("Invalid CQL type");
+  }
+  return value.trim();
+}
+
+function cqlOperator(value: string): string {
+  if (!CQL_OPERATOR.test(value)) {
+    throw new Error("Invalid CQL operator");
+  }
+  return value;
+}
+
+function cqlSelectExpr(value: string): string {
+  if (!CQL_SELECT.test(value)) {
+    throw new Error("Invalid CQL select expression");
+  }
+  return value;
+}
+
+function cqlFragment(value: string, label: string): string {
+  if (/[\0;]|--|\/\*|\*\//.test(value)) {
+    throw new Error(`Invalid CQL ${label}`);
+  }
+  return value;
+}
+
 /* =====================================================================================================================
  * =====================================================================================================================
  * Cassandra Client Factory
@@ -547,13 +591,16 @@ export class CassandraTable {
     this.asyncCaller = new AsyncCaller(this.constructorArgs);
 
     // Assign properties
-    this.keyspace = keyspace;
-    this.table = table;
+    this.keyspace = cqlIdent(keyspace, "keyspace");
+    this.table = cqlIdent(table, "table");
     this.primaryKey = Array.isArray(primaryKey) ? primaryKey : [primaryKey];
     this.nonKeyColumns = Array.isArray(nonKeyColumns)
       ? nonKeyColumns
       : [nonKeyColumns];
-    this.withClause = withClause.trim().replace(/^with\s*/i, "");
+    this.withClause = cqlFragment(
+      withClause.trim().replace(/^with\s*/i, ""),
+      "table options"
+    );
     this.indices = indices;
     this.batchSize = batchSize;
 
@@ -753,9 +800,10 @@ export class CassandraTable {
 
     const filters = this.asFilters(whereClause);
 
-    const queryStr = `DELETE FROM ${this.keyspace}.${
-      this.table
-    } ${this.buildWhereClause(filters)}`;
+    const queryStr = `DELETE FROM ${cqlIdent(
+      this.keyspace,
+      "keyspace"
+    )}.${cqlIdent(this.table, "table")} ${this.buildWhereClause(filters)}`;
 
     const queryParams = filters.flatMap(({ value }) => {
       if (Array.isArray(value)) {
@@ -808,13 +856,13 @@ export class CassandraTable {
     // Partition columns may be specified with optional attribute col.partition
     const partitionColumns = columns
       .filter((col) => col.partition)
-      .map((col) => col.name)
+      .map((col) => cqlIdent(col.name, "column"))
       .join(", ");
 
     // All columns not part of the partition key are clustering columns
     const clusteringColumns = columns
       .filter((col) => !col.partition)
-      .map((col) => col.name)
+      .map((col) => cqlIdent(col.name, "column"))
       .join(", ");
 
     let primaryKey = "";
@@ -936,14 +984,16 @@ export class CassandraTable {
     }
 
     const whereConditions = filters.map(({ name, operator = "=", value }) => {
+      const safeName = cqlSelectExpr(name);
+      const safeOperator = cqlOperator(operator);
       // Normalize the operator to handle case-insensitive comparison
-      const normalizedOperator = operator.toUpperCase();
+      const normalizedOperator = safeOperator.toUpperCase();
 
       // Convert value to an array if it's not one, to simplify processing
       const valueArray = Array.isArray(value) ? value : [value];
 
       if (valueArray.length === 1 && normalizedOperator !== "IN") {
-        return `${name} ${operator} ?`;
+        return `${safeName} ${safeOperator} ?`;
       } else {
         // Remove quoted strings from 'name' to prevent counting '?' inside quotes as placeholders
         const quotesPattern = /'[^']*'|"[^"]*"/g;
@@ -967,9 +1017,9 @@ export class CassandraTable {
 
         // Wrap placeolders in a () if the operator is IN
         if (normalizedOperator === "IN") {
-          return `${name} ${operator} (${placeholders})`;
+          return `${safeName} ${safeOperator} (${placeholders})`;
         } else {
-          return `${name} ${operator} ${placeholders}`;
+          return `${safeName} ${safeOperator} ${placeholders}`;
         }
       }
     });
@@ -1003,12 +1053,13 @@ export class CassandraTable {
     }
 
     const orderBy = filters.map(({ name, operator, value }) => {
+      const safeName = cqlIdent(name, "column");
       if (value) {
-        return `${name} ${operator} ?`;
+        return `${safeName} ${cqlOperator(operator ?? "=")} ?`;
       } else if (operator) {
-        return `${name} ${operator}`;
+        return `${safeName} ${cqlOperator(operator)}`;
       } else {
-        return name;
+        return safeName;
       }
     });
 
@@ -1046,7 +1097,11 @@ export class CassandraTable {
     allowFiltering?: boolean
   ): string {
     const selectColumns = queryColumns
-      .map((col) => (col.alias ? `${col.name} AS ${col.alias}` : col.name))
+      .map((col) =>
+        col.alias
+          ? `${cqlSelectExpr(col.name)} AS ${cqlIdent(col.alias, "alias")}`
+          : cqlSelectExpr(col.name)
+      )
       .join(", ");
 
     const whereClause = filters ? this.buildWhereClause(filters) : "";
@@ -1057,7 +1112,13 @@ export class CassandraTable {
 
     const allowFilteringClause = allowFiltering ? "ALLOW FILTERING" : "";
 
-    const cqlQuery = `SELECT ${selectColumns} FROM ${this.keyspace}.${this.table} ${whereClause} ${orderByClause} ${limitClause} ${allowFilteringClause}`;
+    const cqlQuery = `SELECT ${selectColumns} FROM ${cqlIdent(
+      this.keyspace,
+      "keyspace"
+    )}.${cqlIdent(
+      this.table,
+      "table"
+    )} ${whereClause} ${orderByClause} ${limitClause} ${allowFilteringClause}`;
 
     return cqlQuery;
   }
@@ -1147,7 +1208,11 @@ export class CassandraTable {
     cql = `CREATE TABLE IF NOT EXISTS ${this.keyspace}.${this.table} (
       ${
         allColumns.length > 0
-          ? `${allColumns.map((col) => `${col.name} ${col.type}`).join(", ")}`
+          ? `${allColumns
+              .map(
+                (col) => `${cqlIdent(col.name, "column")} ${cqlType(col.type)}`
+              )
+              .join(", ")}`
           : ""
       }
       , ${this.buildPrimaryKey(this.primaryKey)}
@@ -1170,9 +1235,22 @@ export class CassandraTable {
     };
 
     for await (const { name, value, options } of this.indices) {
-      const optionsClause = _formatOptions(options);
-      cql = `CREATE CUSTOM INDEX IF NOT EXISTS idx_${this.table}_${name}
-               ON ${this.keyspace}.${this.table} ${value} USING 'StorageAttachedIndex' ${optionsClause};`;
+      const indexName = cqlIdent(name, "index");
+      if (!CQL_INDEX_VALUE.test(value)) {
+        throw new Error("Invalid CQL index expression");
+      }
+      const optionsClause = cqlFragment(
+        _formatOptions(options),
+        "index options"
+      );
+      cql = `CREATE CUSTOM INDEX IF NOT EXISTS idx_${cqlIdent(
+        this.table,
+        "table"
+      )}_${indexName}
+               ON ${cqlIdent(this.keyspace, "keyspace")}.${cqlIdent(
+        this.table,
+        "table"
+      )} ${value} USING 'StorageAttachedIndex' ${optionsClause};`;
       await this.client.execute(cql);
     }
   }
@@ -1198,15 +1276,20 @@ export class CassandraTable {
 
     const upsertColumns = this._columnCheck(values, columns);
 
-    const upsertColumnNames = upsertColumns.map((col) => col.name);
+    const upsertColumnNames = upsertColumns.map((col) =>
+      cqlIdent(col.name, "column")
+    );
 
     const columnCount = upsertColumnNames.length;
 
     const bindPlaceholders = Array(columnCount).fill("?").join(", ");
 
-    const upsertString = `INSERT INTO ${this.keyspace}.${
-      this.table
-    } (${upsertColumnNames.join(", ")}) VALUES (${bindPlaceholders})`;
+    const upsertString = `INSERT INTO ${cqlIdent(
+      this.keyspace,
+      "keyspace"
+    )}.${cqlIdent(this.table, "table")} (${upsertColumnNames.join(
+      ", "
+    )}) VALUES (${bindPlaceholders})`;
 
     // Initialize an array to hold query objects
     const queries = [];

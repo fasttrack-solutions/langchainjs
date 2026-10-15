@@ -6,6 +6,7 @@ import {
 import { GoogleAuth } from "google-auth-library";
 import knex from "knex";
 import { getIAMPrincipalEmail } from "./utils/utils.js";
+import { sqlDataType, sqlIdent, sqlInt } from "./sql_safety.js";
 
 export interface PostgresEngineArgs {
   ipType?: IpAddressTypes;
@@ -255,19 +256,28 @@ export class PostgresEngine {
       typeof idColumn === "string" ? "UUID" : idColumn.dataType;
     const idColumnName =
       typeof idColumn === "string" ? idColumn : idColumn.name;
+    const schema = sqlIdent(schemaName, "schema");
+    const table = sqlIdent(tableName, "table");
+    const idName = sqlIdent(idColumnName, "column");
+    const idType = sqlDataType(idDataType);
+    const content = sqlIdent(contentColumn, "column");
+    const embedding = sqlIdent(embeddingColumn, "column");
+    const dimensions = sqlInt(vectorSize, "vector size");
 
-    let query = `CREATE TABLE ${schemaName}.${tableName}(
-      ${idColumnName} ${idDataType} PRIMARY KEY,
-      ${contentColumn} TEXT NOT NULL,
-      ${embeddingColumn} vector(${vectorSize}) NOT NULL`;
+    let query = `CREATE TABLE ${schema}.${table}(
+      ${idName} ${idType} PRIMARY KEY,
+      ${content} TEXT NOT NULL,
+      ${embedding} vector(${dimensions}) NOT NULL`;
 
     for (const column of metadataColumns) {
       const nullable = !column.nullable ? "NOT NULL" : "";
-      query += `,\n ${column.name} ${column.dataType} ${nullable}`;
+      query += `,\n ${sqlIdent(column.name, "column")} ${sqlDataType(
+        column.dataType
+      )} ${nullable}`;
     }
 
     if (storeMetadata) {
-      query += `,\n${metadataJsonColumn} JSON`;
+      query += `,\n${sqlIdent(metadataJsonColumn, "column")} JSON`;
     }
 
     query += `\n);`;
@@ -287,7 +297,10 @@ export class PostgresEngine {
     schemaName: string = "public"
   ): Promise<void> {
     await this.pool.raw(
-      `CREATE TABLE IF NOT EXISTS ${schemaName}.${tableName}(
+      `CREATE TABLE IF NOT EXISTS ${sqlIdent(schemaName, "schema")}.${sqlIdent(
+        tableName,
+        "table"
+      )}(
       id SERIAL PRIMARY KEY,
       session_id TEXT NOT NULL,
       data JSONB NOT NULL,
