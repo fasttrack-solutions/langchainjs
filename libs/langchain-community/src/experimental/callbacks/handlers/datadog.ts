@@ -200,8 +200,14 @@ export class DatadogLLMObsTracer
     return bigIntValue;
   }
 
-  protected milisecondsToNanoseconds(ms: number): number {
-    return ms * 1e6;
+  protected milisecondsToNanoseconds(ms: number | string | undefined): number {
+    const parsed =
+      typeof ms === "number"
+        ? ms
+        : typeof ms === "string"
+        ? Date.parse(ms)
+        : Number.NaN;
+    return parsed * 1e6;
   }
 
   protected toDatadogSpanKind(kind: string): DatadogLLMObsSpanKind | null {

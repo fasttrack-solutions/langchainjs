@@ -1023,18 +1023,6 @@ export class AzionVectorStore extends VectorStore {
   }
 
   /**
-   * Escapes the quotes in the value.
-   * @param {string} value The value to escape the quotes in.
-   * @returns {string} The value with the quotes escaped.
-   */
-  private escapeQuotes(value: string | number[]): string | number[] {
-    if (typeof value === "string") {
-      return value.replace(/'/g, " ").replace(/"/g, " ");
-    }
-    return value;
-  }
-
-  /**
    * Sanitizes an item by removing non-alphanumeric characters.
    * @param {string} item The item to sanitize.
    * @returns {string} The sanitized item.
