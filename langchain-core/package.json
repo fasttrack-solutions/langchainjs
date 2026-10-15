@@ -53,6 +53,7 @@
     "@swc/jest": "^0.2.29",
     "@types/decamelize": "^1.2.0",
     "@types/mustache": "^4",
+    "@types/uuid": "^10.0.0",
     "dpdm": "^3.14.0",
     "eslint": "^8.33.0",
     "eslint-config-airbnb-base": "^15.0.0",
