@@ -201,12 +201,12 @@ export class DatadogLLMObsTracer
   }
 
   protected milisecondsToNanoseconds(ms: number | string | undefined): number {
-    const parsed =
-      typeof ms === "number"
-        ? ms
-        : typeof ms === "string"
-        ? Date.parse(ms)
-        : Number.NaN;
+    let parsed = Number.NaN;
+    if (typeof ms === "number") {
+      parsed = ms;
+    } else if (typeof ms === "string") {
+      parsed = Date.parse(ms);
+    }
     return parsed * 1e6;
   }
 
