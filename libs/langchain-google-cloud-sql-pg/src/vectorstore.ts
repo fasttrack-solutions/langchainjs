@@ -504,7 +504,9 @@ export class PostgresVectorStore extends VectorStore {
       const values: { [key: string]: string | string[] } = {
         id,
         content: document.pageContent,
-        embedding: `[${embedding.map((value) => sqlNumber(value)).join(",")}]`,
+        embedding: `[${embedding
+          .map((value: number) => sqlNumber(value))
+          .join(",")}]`,
       };
       let valuesStmt = " VALUES (:id, :content, :embedding";
 
