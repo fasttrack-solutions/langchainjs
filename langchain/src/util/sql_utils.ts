@@ -10,6 +10,23 @@ import {
   SQL_ORACLE_PROMPT,
 } from "../chains/sql_db/sql_db_prompt.js";
 
+const SQL_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function sqlIdent(value: string): string {
+  if (!SQL_IDENTIFIER.test(value)) {
+    throw new Error("Invalid SQL identifier");
+  }
+  return value;
+}
+
+function sqlInt(value: number): number {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 1_000_000) {
+    throw new Error("Invalid SQL limit");
+  }
+  return parsed;
+}
+
 interface RawResultTableAndColumn {
   table_name: string;
   column_name: string;
@@ -120,7 +137,7 @@ export const getTableAndColumnsName = async (
 ): Promise<Array<SqlTable>> => {
   let sql;
   if (appDataSource.options.type === "postgres") {
-    const schema = appDataSource.options?.schema ?? "public";
+    const schema = sqlIdent(appDataSource.options?.schema ?? "public");
     sql = `SELECT 
             t.table_name, 
             c.* 
@@ -176,7 +193,9 @@ export const getTableAndColumnsName = async (
       "DATA_TYPE AS data_type, " +
       "IS_NULLABLE AS is_nullable " +
       "FROM INFORMATION_SCHEMA.COLUMNS " +
-      `WHERE TABLE_SCHEMA = '${appDataSource.options.database}';`;
+      `WHERE TABLE_SCHEMA = '${sqlIdent(
+        String(appDataSource.options.database)
+      )}';`;
 
     const rep = await appDataSource.query(sql);
 
@@ -185,13 +204,16 @@ export const getTableAndColumnsName = async (
 
   if (appDataSource.options.type === "mssql") {
     const schema = appDataSource.options?.schema;
+    const schemaFilter = schema
+      ? `WHERE TABLE_SCHEMA = '${sqlIdent(schema)}'`
+      : "";
     const sql = `SELECT
     TABLE_NAME AS table_name,
     COLUMN_NAME AS column_name,
     DATA_TYPE AS data_type,
     IS_NULLABLE AS is_nullable
     FROM INFORMATION_SCHEMA.COLUMNS
-    ${schema && `WHERE TABLE_SCHEMA = '${schema}'`} 
+    ${schemaFilter} 
 ORDER BY TABLE_NAME, ORDINAL_POSITION;`;
 
     const rep = await appDataSource.query(sql);
@@ -199,7 +221,7 @@ ORDER BY TABLE_NAME, ORDINAL_POSITION;`;
   }
 
   if (appDataSource.options.type === "sap") {
-    const schema = appDataSource.options?.schema ?? "public";
+    const schema = sqlIdent(appDataSource.options?.schema ?? "public");
     sql = `SELECT
         TABLE_NAME,
         COLUMN_NAME,
@@ -225,7 +247,7 @@ ORDER BY TABLE_NAME, ORDINAL_POSITION;`;
     return formatToSqlTable(repLowerCase);
   }
   if (appDataSource.options.type === "oracle") {
-    const schemaName = appDataSource.options.schema;
+    const schemaName = sqlIdent(String(appDataSource.options.schema ?? ""));
     const sql = `  
       SELECT
           TABLE_NAME AS "table_name",
@@ -289,9 +311,10 @@ export const generateTableInfoFromTables = async (
     } else if (appDataSource.options.type === "oracle") {
       schema = appDataSource.options.schema;
     }
+    const safeTableName = sqlIdent(currentTable.tableName);
     let sqlCreateTableQuery = schema
-      ? `CREATE TABLE "${schema}"."${currentTable.tableName}" (\n`
-      : `CREATE TABLE ${currentTable.tableName} (\n`;
+      ? `CREATE TABLE "${sqlIdent(schema)}"."${safeTableName}" (\n`
+      : `CREATE TABLE ${safeTableName} (\n`;
     for (const [key, currentColumn] of currentTable.columns.entries()) {
       if (key > 0) {
         sqlCreateTableQuery += ", ";
@@ -302,28 +325,33 @@ export const generateTableInfoFromTables = async (
     }
     sqlCreateTableQuery += ") \n";
 
+    const sampleLimit = sqlInt(nbSampleRow);
     let sqlSelectInfoQuery;
     if (appDataSource.options.type === "mysql") {
-      // We use backticks to quote the table names and thus allow for example spaces in table names
-      sqlSelectInfoQuery = `SELECT * FROM \`${currentTable.tableName}\` LIMIT ${nbSampleRow};\n`;
+      sqlSelectInfoQuery = `SELECT * FROM \`${safeTableName}\` LIMIT ${sampleLimit};\n`;
     } else if (appDataSource.options.type === "postgres") {
-      const schema = appDataSource.options?.schema ?? "public";
-      sqlSelectInfoQuery = `SELECT * FROM "${schema}"."${currentTable.tableName}" LIMIT ${nbSampleRow};\n`;
+      const schema = sqlIdent(appDataSource.options?.schema ?? "public");
+      sqlSelectInfoQuery = `SELECT * FROM "${schema}"."${safeTableName}" LIMIT ${sampleLimit};\n`;
     } else if (appDataSource.options.type === "mssql") {
       const schema = appDataSource.options?.schema;
       sqlSelectInfoQuery = schema
-        ? `SELECT TOP ${nbSampleRow} * FROM ${schema}.[${currentTable.tableName}];\n`
-        : `SELECT TOP ${nbSampleRow} * FROM [${currentTable.tableName}];\n`;
+        ? `SELECT TOP ${sampleLimit} * FROM ${sqlIdent(
+            schema
+          )}.[${safeTableName}];\n`
+        : `SELECT TOP ${sampleLimit} * FROM [${safeTableName}];\n`;
     } else if (appDataSource.options.type === "sap") {
-      const schema =
+      const schema = sqlIdent(
         appDataSource.options?.schema ??
-        appDataSource.options?.username ??
-        "public";
-      sqlSelectInfoQuery = `SELECT * FROM "${schema}"."${currentTable.tableName}" LIMIT ${nbSampleRow};\n`;
+          appDataSource.options?.username ??
+          "public"
+      );
+      sqlSelectInfoQuery = `SELECT * FROM "${schema}"."${safeTableName}" LIMIT ${sampleLimit};\n`;
     } else if (appDataSource.options.type === "oracle") {
-      sqlSelectInfoQuery = `SELECT * FROM "${schema}"."${currentTable.tableName}" WHERE ROWNUM <= '${nbSampleRow}'`;
+      sqlSelectInfoQuery = `SELECT * FROM "${sqlIdent(
+        String(schema)
+      )}"."${safeTableName}" WHERE ROWNUM <= ${sampleLimit}`;
     } else {
-      sqlSelectInfoQuery = `SELECT * FROM "${currentTable.tableName}" LIMIT ${nbSampleRow};\n`;
+      sqlSelectInfoQuery = `SELECT * FROM "${safeTableName}" LIMIT ${sampleLimit};\n`;
     }
 
     const columnNamesConcatString = `${currentTable.columns.reduce(

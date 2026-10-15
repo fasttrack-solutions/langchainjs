@@ -237,7 +237,7 @@ export class OpenAPISpec {
     try {
       document = JSON.parse(rawString);
     } catch (e) {
-      document = yaml.load(rawString);
+      document = yaml.load(rawString, { schema: yaml.JSON_SCHEMA });
     }
     return OpenAPISpec.fromObject(document);
   }

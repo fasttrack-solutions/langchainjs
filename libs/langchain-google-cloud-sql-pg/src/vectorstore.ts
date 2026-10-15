@@ -15,6 +15,26 @@ import {
 } from "./indexes.js";
 import PostgresEngine from "./engine.js";
 import { customZip } from "./utils/utils.js";
+import {
+  sqlIdent,
+  sqlInt,
+  sqlNumber,
+  sqlPredicate,
+  sqlQuote,
+} from "./sql_safety.js";
+
+const DISTANCE_OPERATORS = new Set(["<->", "<=>", "<#>"]);
+const DISTANCE_FUNCTIONS = new Set([
+  "l2_distance",
+  "cosine_distance",
+  "inner_product",
+]);
+const INDEX_FUNCTIONS = new Set([
+  "vector_l2_ops",
+  "vector_cosine_ops",
+  "vector_ip_ops",
+]);
+const INDEX_TYPES = new Set(["hnsw", "ivfflat"]);
 
 export interface PostgresVectorStoreArgs {
   schemaName?: string;
@@ -301,7 +321,9 @@ export class PostgresVectorStore extends VectorStore {
     }
 
     const { rows } = await engine.pool.raw(
-      `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${tableName}' AND table_schema = '${schemaName}'`
+      `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = ${sqlQuote(
+        tableName
+      )} AND table_schema = ${sqlQuote(schemaName)}`
     );
     const columns: { [key: string]: string } = {};
 
@@ -464,22 +486,36 @@ export class PostgresVectorStore extends VectorStore {
     for (const [id, document, embedding, metadata] of tuples) {
       const metadataColNames =
         this.metadataColumns.length > 0
-          ? `, "${this.metadataColumns.join('","')}"`
+          ? `, "${this.metadataColumns
+              .map((column) => sqlIdent(column, "column"))
+              .join('","')}"`
           : "";
 
-      let stmt = `INSERT INTO "${this.schemaName}"."${this.tableName}"("${this.idColumn}", "${this.contentColumn}", "${this.embeddingColumn}" ${metadataColNames}`;
+      let stmt = `INSERT INTO "${sqlIdent(
+        this.schemaName,
+        "schema"
+      )}"."${sqlIdent(this.tableName, "table")}"("${sqlIdent(
+        this.idColumn,
+        "column"
+      )}", "${sqlIdent(this.contentColumn, "column")}", "${sqlIdent(
+        this.embeddingColumn,
+        "column"
+      )}" ${metadataColNames}`;
       const values: { [key: string]: string | string[] } = {
         id,
         content: document.pageContent,
-        embedding: `[${embedding.toString()}]`,
+        embedding: `[${embedding
+          .map((value: number) => sqlNumber(value))
+          .join(",")}]`,
       };
       let valuesStmt = " VALUES (:id, :content, :embedding";
 
       // Add metadata
       const extra = metadata;
       for (const metadataColumn of this.metadataColumns) {
+        const column = sqlIdent(metadataColumn, "column");
         if (Object.prototype.hasOwnProperty.call(metadata, metadataColumn)) {
-          valuesStmt += `, :${metadataColumn}`;
+          valuesStmt += `, :${column}`;
           values[metadataColumn] = metadata[metadataColumn];
           delete extra[metadataColumn];
         } else {
@@ -488,7 +524,9 @@ export class PostgresVectorStore extends VectorStore {
       }
 
       // Add JSON column and/or close statement
-      stmt += this.metadataJsonColumn ? `, ${this.metadataJsonColumn})` : ")";
+      stmt += this.metadataJsonColumn
+        ? `, ${sqlIdent(this.metadataJsonColumn, "column")})`
+        : ")";
       if (this.metadataJsonColumn) {
         valuesStmt += ", :extra)";
         Object.assign(values, { extra: JSON.stringify(extra) });
@@ -541,8 +579,14 @@ export class PostgresVectorStore extends VectorStore {
    */
   async delete(params: { ids?: string[] }): Promise<void> {
     if (params.ids === undefined) return;
-    const idList = params.ids.map((id) => `'${id}'`).join(", ");
-    const query = `DELETE FROM "${this.schemaName}"."${this.tableName}" WHERE "${this.idColumn}" in (${idList})`;
+    const idList = params.ids.map((id) => sqlQuote(id)).join(", ");
+    const query = `DELETE FROM "${sqlIdent(
+      this.schemaName,
+      "schema"
+    )}"."${sqlIdent(this.tableName, "table")}" WHERE "${sqlIdent(
+      this.idColumn,
+      "column"
+    )}" in (${idList})`;
     await this.engine.pool.raw(query);
   }
 
@@ -578,23 +622,49 @@ export class PostgresVectorStore extends VectorStore {
     k?: number | undefined,
     filter?: this["FilterType"] | undefined
   ) {
-    const fetchK = k ?? this.k;
+    const fetchK = sqlInt(k ?? this.k, "limit");
     const { operator } = this.distanceStrategy;
     const { searchFunction } = this.distanceStrategy;
-    const _filter = filter !== undefined ? `WHERE ${filter}` : "";
+    if (
+      !DISTANCE_OPERATORS.has(operator) ||
+      !DISTANCE_FUNCTIONS.has(searchFunction)
+    ) {
+      throw new Error("Invalid distance strategy");
+    }
+    const embeddingLiteral = embedding
+      .map((value) => sqlNumber(value))
+      .join(",");
+    const _filter = filter !== undefined ? `WHERE ${sqlPredicate(filter)}` : "";
     const metadataColNames =
       this.metadataColumns.length > 0
-        ? `, "${this.metadataColumns.join('","')}"`
+        ? `, "${this.metadataColumns
+            .map((column) => sqlIdent(column, "column"))
+            .join('","')}"`
         : "";
     const metadataJsonColName = this.metadataJsonColumn
-      ? `, "${this.metadataJsonColumn}"`
+      ? `, "${sqlIdent(this.metadataJsonColumn, "column")}"`
       : "";
 
-    const query = `SELECT "${this.idColumn}", "${this.contentColumn}", "${this.embeddingColumn}" ${metadataColNames} ${metadataJsonColName}, ${searchFunction}("${this.embeddingColumn}", '[${embedding}]') as distance FROM "${this.schemaName}"."${this.tableName}" ${_filter} ORDER BY "${this.embeddingColumn}" ${operator} '[${embedding}]' LIMIT ${fetchK};`;
+    const query = `SELECT "${sqlIdent(this.idColumn, "column")}", "${sqlIdent(
+      this.contentColumn,
+      "column"
+    )}", "${sqlIdent(
+      this.embeddingColumn,
+      "column"
+    )}" ${metadataColNames} ${metadataJsonColName}, ${searchFunction}("${sqlIdent(
+      this.embeddingColumn,
+      "column"
+    )}", '[${embeddingLiteral}]') as distance FROM "${sqlIdent(
+      this.schemaName,
+      "schema"
+    )}"."${sqlIdent(this.tableName, "table")}" ${_filter} ORDER BY "${sqlIdent(
+      this.embeddingColumn,
+      "column"
+    )}" ${operator} '[${embeddingLiteral}]' LIMIT ${fetchK};`;
 
     if (this.indexQueryOptions) {
       await this.engine.pool.raw(
-        `SET LOCAL ${this.indexQueryOptions.to_string()}`
+        `SET LOCAL ${sqlPredicate(this.indexQueryOptions.to_string())}`
       );
     }
 
@@ -669,10 +739,15 @@ export class PostgresVectorStore extends VectorStore {
 
     const filter =
       index.partialIndexes && index.partialIndexes?.length > 0
-        ? `WHERE (${index.partialIndexes})`
+        ? `WHERE (${index.partialIndexes
+            .map((part) => sqlPredicate(part))
+            .join(" AND ")})`
         : "";
-    const params = `WITH ${index.indexOptions()}`;
+    const params = sqlPredicate(`WITH ${index.indexOptions()}`);
     const funct = index.distanceStrategy.indexFunction;
+    if (!INDEX_FUNCTIONS.has(funct) || !INDEX_TYPES.has(index.indexType)) {
+      throw new Error("Invalid index definition");
+    }
 
     let indexName = name;
     if (!indexName) {
@@ -683,11 +758,16 @@ export class PostgresVectorStore extends VectorStore {
       }
     }
 
-    const stmt = `CREATE INDEX ${
-      concurrently ? "CONCURRENTLY" : ""
-    } ${indexName} ON "${this.schemaName}"."${this.tableName}" USING ${
-      index.indexType
-    } (${this.embeddingColumn} ${funct}) ${params} ${filter};`;
+    const stmt = `CREATE INDEX ${concurrently ? "CONCURRENTLY" : ""} ${sqlIdent(
+      indexName,
+      "index"
+    )} ON "${sqlIdent(this.schemaName, "schema")}"."${sqlIdent(
+      this.tableName,
+      "table"
+    )}" USING ${index.indexType} (${sqlIdent(
+      this.embeddingColumn,
+      "column"
+    )} ${funct}) ${params} ${filter};`;
 
     await this.engine.pool.raw(stmt);
   }
@@ -697,10 +777,17 @@ export class PostgresVectorStore extends VectorStore {
    * @param {string} indexName Optional - index name
    */
   async isValidIndex(indexName?: string): Promise<boolean> {
-    const idxName = indexName || this.tableName + DEFAULT_INDEX_NAME_SUFFIX;
+    const idxName = sqlIdent(
+      indexName || this.tableName + DEFAULT_INDEX_NAME_SUFFIX,
+      "index"
+    );
     const stmt = `SELECT tablename, indexname
                   FROM pg_indexes
-                  WHERE tablename = '${this.tableName}' AND schemaname = '${this.schemaName}' AND indexname = '${idxName}';`;
+                  WHERE tablename = ${sqlQuote(
+                    this.tableName
+                  )} AND schemaname = ${sqlQuote(
+      this.schemaName
+    )} AND indexname = ${sqlQuote(idxName)};`;
     const { rows } = await this.engine.pool.raw(stmt);
 
     return rows.length === 1;
@@ -711,7 +798,10 @@ export class PostgresVectorStore extends VectorStore {
    * @param {string} indexName Optional - index name
    */
   async dropVectorIndex(indexName?: string): Promise<void> {
-    const idxName = indexName || this.tableName + DEFAULT_INDEX_NAME_SUFFIX;
+    const idxName = sqlIdent(
+      indexName || this.tableName + DEFAULT_INDEX_NAME_SUFFIX,
+      "index"
+    );
     const query = `DROP INDEX IF EXISTS ${idxName};`;
     await this.engine.pool.raw(query);
   }
@@ -721,7 +811,10 @@ export class PostgresVectorStore extends VectorStore {
    * @param {string} indexName Optional - index name
    */
   async reIndex(indexName?: string) {
-    const idxName = indexName || this.tableName + DEFAULT_INDEX_NAME_SUFFIX;
+    const idxName = sqlIdent(
+      indexName || this.tableName + DEFAULT_INDEX_NAME_SUFFIX,
+      "index"
+    );
     const query = `REINDEX INDEX ${idxName};`;
     await this.engine.pool.raw(query);
   }

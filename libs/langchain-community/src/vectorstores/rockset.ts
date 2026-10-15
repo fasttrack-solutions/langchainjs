@@ -5,6 +5,7 @@ import { Collection } from "@rockset/client/dist/codegen/api.js";
 import type { EmbeddingsInterface } from "@langchain/core/embeddings";
 import { VectorStore } from "@langchain/core/vectorstores";
 import { Document } from "@langchain/core/documents";
+import { sqlIdent, sqlInt, sqlPredicate } from "../utils/sql_safety.js";
 /**
  * Generic Rockset vector storage error
  */
@@ -243,18 +244,22 @@ export class RocksetStore extends VectorStore {
           sql: {
             query: `
           SELECT
-            * EXCEPT("${this.embeddingKey}"),
-            "${this.textKey}",
-            ${this.similarityMetric}(:query, "${
+            * EXCEPT("${sqlIdent(this.embeddingKey)}"),
+            "${sqlIdent(this.textKey)}",
+            ${sqlIdent(this.similarityMetric)}(:query, "${sqlIdent(
               this.embeddingKey
-            }") AS "${similarityKey}"
+            )}") AS "${sqlIdent(similarityKey)}"
           FROM 
-            "${this.workspaceName}"."${this.collectionName}"
-          ${_filter ? `WHERE ${_filter}` : ""}
+            "${sqlIdent(this.workspaceName)}"."${sqlIdent(this.collectionName)}"
+          ${_filter ? `WHERE ${sqlPredicate(_filter)}` : ""}
           ORDER BY
-            "${similarityKey}" ${this.similarityOrder}
+            "${sqlIdent(similarityKey)}" ${
+              this.similarityOrder === "ASC" || this.similarityOrder === "DESC"
+                ? this.similarityOrder
+                : "DESC"
+            }
           LIMIT
-            ${k}
+            ${sqlInt(k)}
         `,
             parameters: [
               {

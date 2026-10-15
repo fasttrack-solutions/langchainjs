@@ -26,9 +26,18 @@ function formatKVMapItem(value: unknown) {
   return tryJsonStringify(value, value.toString());
 }
 
+function epochMs(value: number | string | undefined): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+}
+
 function elapsed(run: Run): string {
   if (!run.end_time) return "";
-  const elapsed = run.end_time - run.start_time;
+  const elapsed = epochMs(run.end_time) - epochMs(run.start_time);
   if (elapsed < 1000) {
     return `${elapsed}ms`;
   }

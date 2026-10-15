@@ -6,6 +6,15 @@ import { getEnvironmentVariable } from "../utils/env.js";
 
 import { BaseTracer, type RunType, type Run } from "./base.js";
 
+function epochMs(value: number | string | undefined): number | undefined {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? undefined : parsed;
+  }
+  return undefined;
+}
+
 export interface BaseRunV1 {
   uuid: string;
   parent_uuid?: string;
@@ -108,8 +117,8 @@ export class LangChainTracerV1 extends BaseTracer {
 
       const llmRun: LLMRun = {
         uuid: run.id,
-        start_time: run.start_time,
-        end_time: run.end_time,
+        start_time: epochMs(run.start_time) ?? Date.now(),
+        end_time: epochMs(run.end_time),
         execution_order: run.execution_order,
         child_execution_order: run.child_execution_order,
         serialized,
@@ -125,8 +134,8 @@ export class LangChainTracerV1 extends BaseTracer {
       );
       const chainRun: ChainRun = {
         uuid: run.id,
-        start_time: run.start_time,
-        end_time: run.end_time,
+        start_time: epochMs(run.start_time) ?? Date.now(),
+        end_time: epochMs(run.end_time),
         execution_order: run.execution_order,
         child_execution_order: run.child_execution_order,
         serialized,
@@ -152,8 +161,8 @@ export class LangChainTracerV1 extends BaseTracer {
       );
       const toolRun: ToolRun = {
         uuid: run.id,
-        start_time: run.start_time,
-        end_time: run.end_time,
+        start_time: epochMs(run.start_time) ?? Date.now(),
+        end_time: epochMs(run.end_time),
         execution_order: run.execution_order,
         child_execution_order: run.child_execution_order,
         serialized,

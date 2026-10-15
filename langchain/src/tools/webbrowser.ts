@@ -117,6 +117,9 @@ const getHtml = async (
   ];
 
   const contentType = htmlResponse.headers["content-type"];
+  if (typeof contentType !== "string") {
+    throw new Error("returned page was not utf8");
+  }
   const contentTypeArray = contentType.split(";");
   if (
     contentTypeArray[0] &&

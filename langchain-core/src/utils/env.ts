@@ -1,16 +1,15 @@
-// Inlined from https://github.com/flexdinesh/browser-or-node
-declare global {
-  const Deno:
-    | {
-        version: {
-          deno: string;
-        };
-        env: {
-          get: (name: string) => string | undefined;
-        };
-      }
-    | undefined;
-}
+// Inlined from https://github.com/flexdinesh/browser-or-node.
+// Module-scoped so it does not clash with the Deno global from langsmith.
+declare const Deno:
+  | {
+      version: {
+        deno: string;
+      };
+      env: {
+        get: (name: string) => string | undefined;
+      };
+    }
+  | undefined;
 
 export const isBrowser = () =>
   typeof window !== "undefined" && typeof window.document !== "undefined";

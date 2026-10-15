@@ -21,6 +21,13 @@ import {
 } from "@azure/cosmos";
 import { DefaultAzureCredential, TokenCredential } from "@azure/identity";
 
+function safeFilterClause(value: string): string {
+  if (/[\0;]|--|\/\*|\*\//.test(value)) {
+    throw new Error("Invalid filter clause");
+  }
+  return value;
+}
+
 /** Azure Cosmos DB for NoSQL query filter. */
 export type AzureCosmosDBNoSQLQueryFilter = string | SqlQuerySpec;
 
@@ -344,9 +351,9 @@ export class AzureCosmosDBNoSQLVectorStore extends VectorStore {
     let filterClauseParams: SqlParameter[] = [];
     if (filter?.filterClause) {
       if (typeof filter.filterClause === "string") {
-        filterClause = `${filter.filterClause} `;
+        filterClause = `${safeFilterClause(filter.filterClause)} `;
       } else {
-        filterClause = `${filter.filterClause.query} `;
+        filterClause = `${safeFilterClause(filter.filterClause.query)} `;
         filterClauseParams = filter.filterClause.parameters ?? [];
       }
     }

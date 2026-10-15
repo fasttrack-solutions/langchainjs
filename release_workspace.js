@@ -1,4 +1,4 @@
-const { execSync } = require("child_process");
+const { execSync, spawnSync } = require("child_process");
 const { Command } = require("commander");
 const fs = require("fs");
 const path = require("path");
@@ -8,21 +8,27 @@ const semver = require("semver");
 
 const RELEASE_BRANCH = "release";
 const MAIN_BRANCH = "main";
+const SAFE_TOKEN = /^[A-Za-z0-9._@/+-]+$/;
+
+function safeToken(value, label) {
+  if (typeof value !== "string" || !SAFE_TOKEN.test(value)) {
+    throw new Error(`Invalid ${label}`);
+  }
+  return value;
+}
 
 /**
- * Handles execSync errors and logs them in a readable format.
- * @param {string} command
- * @param {{ doNotExit?: boolean }} [options] - Optional configuration
- * @param {boolean} [options.doNotExit] - Whether or not to exit the process on error
+ * Run a command without a shell so arguments cannot change the command.
+ * @param {string[]} args
+ * @param {{ doNotExit?: boolean }} [options]
  */
-function execSyncWithErrorHandling(command, options = {}) {
-  try {
-    execSync(
-      command,
-      { stdio: "inherit" } // This will stream output in real-time
-    );
-  } catch (error) {
-    console.error(error.message);
+function runCommand(args, options = {}) {
+  const [bin, ...rest] = args;
+  const result = spawnSync(bin, rest, { stdio: "inherit", shell: false });
+  if (result.error || result.status !== 0) {
+    const message =
+      result.error?.message || `${bin} exited with status ${result.status}`;
+    console.error(message);
     if (!options.doNotExit) {
       process.exit(1);
     }
@@ -140,10 +146,14 @@ function updateDependencies(
 async function runYarnRelease(packageDirectory, npm2FACode, tag) {
   return new Promise((resolve, reject) => {
     const workingDirectory = path.join(process.cwd(), packageDirectory);
-    const tagArg = tag ? `--npm.tag=${tag}` : "";
+    const tagArg = tag ? `--npm.tag=${safeToken(tag, "tag")}` : "";
+    const otp = String(npm2FACode ?? "").trim();
+    if (!/^[0-9]{6,8}$/.test(otp)) {
+      throw new Error("Invalid NPM authentication code");
+    }
     const args = [
       "release-it",
-      `--npm.otp=${npm2FACode}`,
+      `--npm.otp=${otp}`,
       tagArg,
       "--config",
       ".release-it.json",
@@ -203,7 +213,7 @@ function bumpDeps(
     console.log(
       "Updated version is not greater than the pre-release version. Pulling from github and checking again."
     );
-    execSyncWithErrorHandling(`git pull origin ${RELEASE_BRANCH}`);
+    runCommand(["git", "pull", "origin", RELEASE_BRANCH]);
     updatedWorkspaceVersion = getWorkspaceVersion(workspaceDirectory);
     if (!semver.gt(updatedWorkspaceVersion, preReleaseVersion)) {
       console.warn(
@@ -222,10 +232,13 @@ function bumpDeps(
     versionString = `${updatedWorkspaceVersion}-${tag}`;
   }
 
-  execSyncWithErrorHandling(`git checkout ${MAIN_BRANCH}`);
-  const newBranchName = `bump-${workspaceName}-to-${versionString}`;
+  runCommand(["git", "checkout", MAIN_BRANCH]);
+  const newBranchName = safeToken(
+    `bump-${workspaceName}-to-${versionString}`,
+    "branch"
+  );
   console.log(`Checking out new branch: ${newBranchName}`);
-  execSyncWithErrorHandling(`git checkout -b ${newBranchName}`);
+  runCommand(["git", "checkout", "-b", newBranchName]);
 
   const allWorkspacesWhichDependOn = allWorkspaces.filter(({ packageJSON }) =>
     Object.keys(packageJSON.dependencies ?? {}).includes(workspaceName)
@@ -277,7 +290,7 @@ Workspaces:
     console.log("Updated package.json's! Running yarn install.");
 
     try {
-      execSyncWithErrorHandling(`yarn install`);
+      runCommand(["yarn", "install"]);
     } catch (_) {
       console.log(
         "Yarn install failed. Likely because NPM has not finished publishing the new version. Continuing."
@@ -286,12 +299,18 @@ Workspaces:
 
     // Add all current changes, commit, push and log branch URL.
     console.log("Adding and committing all changes.");
-    execSyncWithErrorHandling(`git add -A`);
-    execSyncWithErrorHandling(
-      `git commit -m "all[minor]: bump deps on ${workspaceName} to ${versionString}"`
-    );
+    runCommand(["git", "add", "-A"]);
+    runCommand([
+      "git",
+      "commit",
+      "-m",
+      `all[minor]: bump deps on ${safeToken(
+        workspaceName,
+        "workspace"
+      )} to ${safeToken(versionString, "version")}`,
+    ]);
     console.log("Pushing changes.");
-    execSyncWithErrorHandling(`git push -u origin ${newBranchName}`);
+    runCommand(["git", "push", "-u", "origin", newBranchName]);
     console.log(
       "🔗 Open %s and merge the bump-deps PR.",
       `\x1b[34mhttps://github.com/langchain-ai/langchainjs/compare/${newBranchName}?expand=1\x1b[0m`
@@ -325,8 +344,8 @@ function commitAndPushChanges(workspaceName, version, onlyPush) {
     console.log("Committing changes...");
     const commitMsg = createCommitMessage(workspaceName, version);
     try {
-      execSyncWithErrorHandling("git add -A", { doNotExit: true });
-      execSyncWithErrorHandling(`git commit -m "${commitMsg}"`, {
+      runCommand(["git", "add", "-A"], { doNotExit: true });
+      runCommand(["git", "commit", "-m", commitMsg], {
         doNotExit: true,
       });
     } catch (_) {
@@ -336,9 +355,11 @@ function commitAndPushChanges(workspaceName, version, onlyPush) {
 
   console.log("Pushing changes...");
   // Pushes to the current branch
-  execSyncWithErrorHandling(
-    "git push -u origin $(git rev-parse --abbrev-ref HEAD)"
+  const branch = safeToken(
+    execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8" }).trim(),
+    "branch"
   );
+  runCommand(["git", "push", "-u", "origin", branch]);
   console.log("Successfully committed and pushed changes.");
 }
 
@@ -353,8 +374,8 @@ function checkoutReleaseBranch() {
   const currentBranch = execSync("git branch --show-current").toString().trim();
   if (currentBranch === MAIN_BRANCH || currentBranch === RELEASE_BRANCH) {
     console.log(`Checking out '${RELEASE_BRANCH}' branch.`);
-    execSyncWithErrorHandling(`git checkout -B ${RELEASE_BRANCH}`);
-    execSyncWithErrorHandling(`git push -u origin ${RELEASE_BRANCH}`);
+    runCommand(["git", "checkout", "-B", RELEASE_BRANCH]);
+    runCommand(["git", "push", "-u", "origin", RELEASE_BRANCH]);
   } else {
     throw new Error(
       `Current branch is not ${MAIN_BRANCH} or ${RELEASE_BRANCH}. Current branch: ${currentBranch}`
@@ -439,6 +460,10 @@ async function main() {
   if (!options.workspace) {
     throw new Error("--workspace is a required flag.");
   }
+  safeToken(options.workspace, "workspace");
+  if (options.tag) {
+    safeToken(options.tag, "tag");
+  }
 
   if (hasUncommittedChanges()) {
     console.warn(
@@ -461,9 +486,18 @@ async function main() {
 
   // Run build, lint, tests
   console.log("Running build, lint, and tests.");
-  execSyncWithErrorHandling(
-    `yarn turbo:command run --filter ${options.workspace} build lint test --concurrency 1`
-  );
+  runCommand([
+    "yarn",
+    "turbo:command",
+    "run",
+    "--filter",
+    safeToken(options.workspace, "workspace"),
+    "build",
+    "lint",
+    "test",
+    "--concurrency",
+    "1",
+  ]);
   console.log("Successfully ran build, lint, and tests.");
 
   const npm2FACode = await getUserInput(

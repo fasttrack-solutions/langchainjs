@@ -4,6 +4,12 @@ import { format } from "mysql2";
 import type { EmbeddingsInterface } from "@langchain/core/embeddings";
 import { VectorStore } from "@langchain/core/vectorstores";
 import { Document } from "@langchain/core/documents";
+import {
+  sqlIdent,
+  sqlInt,
+  sqlPredicate,
+  sqlToken,
+} from "../utils/sql_safety.js";
 
 /**
  * Arguments for the ClickHouseStore class, which include the host, port,
@@ -309,26 +315,30 @@ export class ClickHouseStore extends VectorStore {
     filter?: ClickHouseFilter
   ): string {
     const order = "ASC";
-    const whereStr = filter ? `PREWHERE ${filter.whereStr}` : "";
+    const whereStr = filter?.whereStr
+      ? `PREWHERE ${sqlPredicate(filter.whereStr)}`
+      : "";
     const placeholders = query.map(() => "?").join(", ");
 
     const settingStrings: string[] = [];
     if (this.indexQueryParams) {
       for (const [key, value] of Object.entries(this.indexQueryParams)) {
-        settingStrings.push(`SETTING ${key}=${value}`);
+        settingStrings.push(
+          `SETTING ${sqlIdent(key)}=${sqlToken(value, "setting")}`
+        );
       }
     }
 
     const searchQueryStr = `
-      SELECT ${this.columnMap.document} AS document, ${
+      SELECT ${sqlIdent(this.columnMap.document)} AS document, ${sqlIdent(
       this.columnMap.metadata
-    } AS metadata, dist
-      FROM ${this.database}.${this.table}
+    )} AS metadata, dist
+      FROM ${sqlIdent(this.database)}.${sqlIdent(this.table)}
       ${whereStr}
-      ORDER BY L2Distance(${
+      ORDER BY L2Distance(${sqlIdent(
         this.columnMap.embedding
-      }, [${placeholders}]) AS dist ${order}
-      LIMIT ${k} ${settingStrings.join(" ")}
+      )}, [${placeholders}]) AS dist ${order}
+      LIMIT ${sqlInt(k)} ${settingStrings.join(" ")}
     `;
 
     // Format the query with actual values

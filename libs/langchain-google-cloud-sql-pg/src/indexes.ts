@@ -1,3 +1,5 @@
+import { sqlInt } from "./sql_safety.js";
+
 class StrategyMixin {
   operator: string;
 
@@ -103,7 +105,10 @@ export class HNSWIndex extends BaseIndex {
   }
 
   indexOptions(): string {
-    return `(m = ${this.m}, ef_construction = ${this.efConstruction})`;
+    return `(m = ${sqlInt(this.m, "m")}, ef_construction = ${sqlInt(
+      this.efConstruction,
+      "ef_construction"
+    )})`;
   }
 }
 
@@ -121,7 +126,7 @@ export class IVFFlatIndex extends BaseIndex {
   }
 
   indexOptions(): string {
-    return `(lists = ${this.lists})`;
+    return `(lists = ${sqlInt(this.lists, "lists")})`;
   }
 }
 
@@ -142,7 +147,7 @@ export class HNSWQueryOptions extends QueryOptions {
   }
 
   to_string(): string {
-    return `hnsw.ef_search = ${this.efSearch}`;
+    return `hnsw.ef_search = ${sqlInt(this.efSearch, "ef_search")}`;
   }
 }
 
@@ -155,6 +160,6 @@ export class IVFFlatQueryOptions extends QueryOptions {
   }
 
   to_string(): string {
-    return `ivflfat.probes = ${this.probes}`;
+    return `ivflfat.probes = ${sqlInt(this.probes, "probes")}`;
   }
 }

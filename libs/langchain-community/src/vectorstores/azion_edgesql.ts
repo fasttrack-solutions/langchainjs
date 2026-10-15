@@ -11,6 +11,13 @@ import {
 } from "azion/sql";
 import type { EmbeddingsInterface } from "@langchain/core/embeddings";
 import { Document } from "@langchain/core/documents";
+import {
+  sqlIdent,
+  sqlInt,
+  sqlNumber,
+  sqlPredicate,
+  sqlQuote,
+} from "../utils/sql_safety.js";
 
 /**
  * Represents a filter condition for querying the Azion database
@@ -434,20 +441,21 @@ export class AzionVectorStore extends VectorStore {
     if (this.expandedMetadata && columns) {
       createTableColumns =
         columns.length > 0
-          ? "," + columns.map((key) => `${key} TEXT`).join(",")
+          ? "," + columns.map((key) => `${sqlIdent(key)} TEXT`).join(",")
           : "";
     }
 
+    const tableName = sqlIdent(this.tableName);
     const createTableStatement = `
-        CREATE TABLE ${this.tableName} (
+        CREATE TABLE ${tableName} (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             content TEXT NOT NULL,
-            embedding F32_BLOB(${await this.getEmbeddingsDimensions()})
+            embedding F32_BLOB(${sqlInt(await this.getEmbeddingsDimensions())})
             ${createTableColumns}
         );`;
 
     const createIndexStatement = `
-        CREATE INDEX ${this.tableName}_idx ON ${this.tableName} (
+        CREATE INDEX ${tableName}_idx ON ${tableName} (
             libsql_vector_idx(embedding, 'metric=cosine', 'compress_neighbors=float8', 'max_neighbors=20')
         )`;
 
@@ -455,12 +463,12 @@ export class AzionVectorStore extends VectorStore {
     if (this.expandedMetadata && columns) {
       createFtsColumns =
         columns.length > 0
-          ? "," + columns.map((key) => `${key}`).join(",")
+          ? "," + columns.map((key) => sqlIdent(key)).join(",")
           : "";
     }
 
     const createFtsStatement = `
-        CREATE VIRTUAL TABLE IF NOT EXISTS ${this.tableName}_fts USING fts5(
+        CREATE VIRTUAL TABLE IF NOT EXISTS ${tableName}_fts USING fts5(
             content,
             id UNINDEXED
             ${createFtsColumns},
@@ -472,38 +480,40 @@ export class AzionVectorStore extends VectorStore {
     let updateTriggersColumns = ",metadata = new.metadata";
 
     if (this.expandedMetadata && columns) {
-      createTriggersColumns = columns.length > 0 ? "," + columns.join(",") : "";
+      const safeColumns = columns.map((key) => sqlIdent(key));
+      createTriggersColumns =
+        safeColumns.length > 0 ? "," + safeColumns.join(",") : "";
       insertTriggersValues =
-        columns.length > 0
-          ? "," + columns.map((key) => `new.${key}`).join(",")
+        safeColumns.length > 0
+          ? "," + safeColumns.map((key) => `new.${key}`).join(",")
           : "";
       updateTriggersColumns =
-        columns.length > 0
-          ? "," + columns.map((key) => `${key} = new.${key}`).join(",")
+        safeColumns.length > 0
+          ? "," + safeColumns.map((key) => `${key} = new.${key}`).join(",")
           : "";
     }
 
     const createTriggersStatements = [
-      `CREATE TRIGGER IF NOT EXISTS insert_into_${this.tableName}_fts 
-        AFTER INSERT ON ${this.tableName}
+      `CREATE TRIGGER IF NOT EXISTS insert_into_${tableName}_fts 
+        AFTER INSERT ON ${tableName}
         BEGIN
-            INSERT INTO ${this.tableName}_fts(id, content ${createTriggersColumns})
+            INSERT INTO ${tableName}_fts(id, content ${createTriggersColumns})
             VALUES(new.id, new.content ${insertTriggersValues});
         END`,
 
-      `CREATE TRIGGER IF NOT EXISTS update_${this.tableName}_fts 
-        AFTER UPDATE ON ${this.tableName}
+      `CREATE TRIGGER IF NOT EXISTS update_${tableName}_fts 
+        AFTER UPDATE ON ${tableName}
         BEGIN
-            UPDATE ${this.tableName}_fts 
+            UPDATE ${tableName}_fts 
             SET content = new.content
             ${updateTriggersColumns}
             WHERE id = old.id;
         END`,
 
-      `CREATE TRIGGER IF NOT EXISTS delete_${this.tableName}_fts
-        AFTER DELETE ON ${this.tableName}
+      `CREATE TRIGGER IF NOT EXISTS delete_${tableName}_fts
+        AFTER DELETE ON ${tableName}
         BEGIN
-            DELETE FROM ${this.tableName}_fts WHERE id = old.id;
+            DELETE FROM ${tableName}_fts WHERE id = old.id;
         END`,
     ];
 
@@ -666,11 +676,17 @@ export class AzionVectorStore extends VectorStore {
 
     const filters = this.generateFilters(filter);
 
+    const tableName = sqlIdent(this.tableName);
+    const vectorLiteral = vector.map((n) => sqlNumber(n)).join(",");
     const similarityQuery = `
       SELECT 
-      id, content, ${metadata}, 1 - vector_distance_cos(embedding, vector('[${vector}]')) as similarity
-      FROM ${this.tableName}  
-      WHERE ${filters} rowid IN vector_top_k('${this.tableName}_idx', vector('[${vector}]'), ${k})`;
+      id, content, ${metadata}, 1 - vector_distance_cos(embedding, vector('[${vectorLiteral}]')) as similarity
+      FROM ${tableName}  
+      WHERE ${sqlPredicate(
+        filters
+      )} rowid IN vector_top_k('${tableName}_idx', vector('[${vectorLiteral}]'), ${sqlInt(
+      k
+    )})`;
 
     const { data, error } = await useQuery(this.dbName, [similarityQuery]);
 
@@ -699,13 +715,14 @@ export class AzionVectorStore extends VectorStore {
 
     const filters = this.generateFilters(filter);
 
+    const tableName = sqlIdent(this.tableName);
     const fullTextQuery = `
       SELECT id, content, ${metadata}, rank as bm25_similarity
-      FROM ${this.tableName}_fts  
-      WHERE ${filters} ${this.tableName}_fts MATCH '${this.convert2FTSQuery(
-      query
-    )}'
-      LIMIT ${kfts}`;
+      FROM ${tableName}_fts  
+      WHERE ${sqlPredicate(filters)} ${tableName}_fts MATCH ${sqlQuote(
+      this.convert2FTSQuery(query)
+    )}
+      LIMIT ${sqlInt(kfts)}`;
 
     const { data, error } = await useQuery(this.dbName, [fullTextQuery]);
 
@@ -801,9 +818,9 @@ export class AzionVectorStore extends VectorStore {
    * @returns {Promise<void>} A promise that resolves when the documents have been deleted.
    */
   async delete(ids: string[]): Promise<void> {
-    const deleteStatement = `DELETE FROM ${
+    const deleteStatement = `DELETE FROM ${sqlIdent(
       this.tableName
-    } WHERE id IN (${ids.join(",")})`;
+    )} WHERE id IN (${ids.map((id) => sqlQuote(id)).join(",")})`;
     const { error } = await useExecute(this.dbName, [deleteStatement]);
     if (error) {
       this.errorHandler(
@@ -973,43 +990,36 @@ export class AzionVectorStore extends VectorStore {
     values: (string | number[])[]
   ): string {
     if (this.expandedMetadata) {
-      const string = `INSERT INTO ${this.tableName} (${columnNames.join(", ")}) 
+      const string = `INSERT INTO ${sqlIdent(this.tableName)} (${columnNames
+        .map((name) => sqlIdent(name))
+        .join(", ")}) 
       VALUES (${values
         .map((value, index) =>
           columnNames[index] === "embedding"
-            ? `vector('[${value}]')`
-            : `'${this.escapeQuotes(value)}'`
+            ? `vector('[${(value as number[])
+                .map((n) => sqlNumber(n))
+                .join(",")}]')`
+            : sqlQuote(String(value))
         )
         .join(", ")})`;
 
       return string;
     }
 
-    const string = `INSERT INTO ${this.tableName} (${columnNames.join(", ")}) 
+    const string = `INSERT INTO ${sqlIdent(this.tableName)} (${columnNames
+      .map((name) => sqlIdent(name))
+      .join(", ")}) 
     VALUES (${values
       .map((value, index) => {
         if (columnNames[index] === "embedding") {
-          return `vector('[${value}]')`;
-        } else if (columnNames[index] === "metadata") {
-          return `'${value}'`;
-        } else {
-          return `'${this.escapeQuotes(value)}'`;
+          return `vector('[${(value as number[])
+            .map((n) => sqlNumber(n))
+            .join(",")}]')`;
         }
+        return sqlQuote(String(value));
       })
       .join(", ")})`;
     return string;
-  }
-
-  /**
-   * Escapes the quotes in the value.
-   * @param {string} value The value to escape the quotes in.
-   * @returns {string} The value with the quotes escaped.
-   */
-  private escapeQuotes(value: string | number[]): string | number[] {
-    if (typeof value === "string") {
-      return value.replace(/'/g, " ").replace(/"/g, " ");
-    }
-    return value;
   }
 
   /**

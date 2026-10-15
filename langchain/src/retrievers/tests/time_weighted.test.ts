@@ -1,4 +1,4 @@
-import { describe, expect, jest, test } from "@jest/globals";
+import { afterAll, describe, expect, jest, test } from "@jest/globals";
 import { Document } from "@langchain/core/documents";
 import { FakeEmbeddings } from "@langchain/core/utils/testing";
 import { MemoryVectorStore } from "../../vectorstores/memory.js";
@@ -11,6 +11,10 @@ import {
 jest.useFakeTimers();
 const mockNow = new Date("2023-04-18 15:30");
 jest.setSystemTime(mockNow);
+
+afterAll(() => {
+  jest.useRealTimers();
+});
 
 const getSec = (date: Date) => Math.floor(date.getTime() / 1000);
 

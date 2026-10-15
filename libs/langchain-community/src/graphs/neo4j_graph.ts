@@ -6,6 +6,7 @@ import neo4j, {
 } from "neo4j-driver";
 import { insecureHash } from "@langchain/core/utils/hash";
 import { GraphDocument } from "./document.js";
+import { sqlIdent } from "../utils/sql_safety.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -510,7 +511,9 @@ export class Neo4jGraph {
             propIndex[0].distinctValues <= DISTINCT_VALUE_LIMIT
           ) {
             const distinctValuesPromise = await this.query(
-              `CALL apoc.schema.properties.distinct('${labelOrType}', '${propName}') YIELD value`
+              `CALL apoc.schema.properties.distinct('${sqlIdent(
+                labelOrType
+              )}', '${sqlIdent(propName)}') YIELD value`
             );
             const distinctValues = distinctValuesPromise[0].value;
             returnClauses.push(
@@ -518,7 +521,9 @@ export class Neo4jGraph {
             );
           } else {
             withClauses.push(
-              `collect(distinct substring(n.\`${propName}\`, 0, 50)) AS \`${propName}_values\``
+              `collect(distinct substring(n.\`${sqlIdent(
+                propName
+              )}\`, 0, 50)) AS \`${sqlIdent(propName)}_values\``
             );
             returnClauses.push(`values: ${propName}_values`);
           }
