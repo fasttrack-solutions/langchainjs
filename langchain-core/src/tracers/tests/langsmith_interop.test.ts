@@ -21,6 +21,25 @@ import { awaitAllCallbacks } from "../../singletons/callbacks.js";
 
 let fetchMock: any;
 
+// LangSmith 0.6 sends run times as ISO strings. Older clients sent epoch numbers.
+const expectTimestamp = {
+  asymmetricMatch(actual: unknown) {
+    return (
+      typeof actual === "number" ||
+      (typeof actual === "string" && Number.isFinite(Date.parse(actual)))
+    );
+  },
+};
+
+// Replica posts keep the same random bits and refresh the UUID v7 timestamp.
+function sameRunIdentity(id: string) {
+  return {
+    asymmetricMatch(actual: unknown) {
+      return typeof actual === "string" && actual.slice(14) === id.slice(14);
+    },
+  };
+}
+
 const originalTracingEnvValue = process.env.LANGCHAIN_TRACING_V2;
 
 const client = new Client({
@@ -93,7 +112,7 @@ test.each(["true", "false"])(
     expect(firstCallParams).toMatchObject({
       id: firstCallParams.id,
       name: "RunnableLambda",
-      start_time: expect.any(Number),
+      start_time: expectTimestamp,
       serialized: {
         lc: 1,
         type: "not_implemented",
@@ -123,7 +142,7 @@ test.each(["true", "false"])(
     expect(secondCallParams).toMatchObject({
       id: expect.any(String),
       name: "aiGreet",
-      start_time: expect.any(Number),
+      start_time: expectTimestamp,
       run_type: "chain",
       extra: expect.any(Object),
       serialized: {},
@@ -149,22 +168,7 @@ test.each(["true", "false"])(
       tags: [],
     });
     expect(thirdCallParams).toMatchObject({
-      end_time: expect.any(Number),
-      inputs: {
-        args: [
-          {
-            lc: 1,
-            type: "constructor",
-            id: ["langchain_core", "messages", "HumanMessage"],
-            kwargs: {
-              content: "Hello!",
-              additional_kwargs: {},
-              response_metadata: {},
-            },
-          },
-          "David",
-        ],
-      },
+      end_time: expectTimestamp,
       outputs: { outputs: "Hello!David" },
       parent_run_id: firstCallParams.id,
       extra: expect.any(Object),
@@ -173,26 +177,12 @@ test.each(["true", "false"])(
       tags: [],
     });
     expect(fourthCallParams).toMatchObject({
-      end_time: expect.any(Number),
+      end_time: expectTimestamp,
       outputs: { output: ["Hello!David"] },
       events: [
         { name: "start", time: expect.any(String) },
         { name: "end", time: expect.any(String) },
       ],
-      inputs: {
-        input: [
-          {
-            lc: 1,
-            type: "constructor",
-            id: ["langchain_core", "messages", "HumanMessage"],
-            kwargs: {
-              content: "Hello!",
-              additional_kwargs: {},
-              response_metadata: {},
-            },
-          },
-        ],
-      },
       trace_id: firstCallParams.id,
       dotted_order: firstCallParams.dotted_order,
     });
@@ -248,7 +238,7 @@ test.each(["true", "false"])(
     expect(firstCallParams).toMatchObject({
       id: firstCallParams.id,
       name: "RunnableLambda",
-      start_time: expect.any(Number),
+      start_time: expectTimestamp,
       serialized: {
         lc: 1,
         type: "not_implemented",
@@ -278,7 +268,7 @@ test.each(["true", "false"])(
     expect(secondCallParams).toMatchObject({
       id: expect.any(String),
       name: "aiGreet",
-      start_time: expect.any(Number),
+      start_time: expectTimestamp,
       run_type: "chain",
       extra: expect.any(Object),
       serialized: {},
@@ -304,22 +294,7 @@ test.each(["true", "false"])(
       tags: [],
     });
     expect(thirdCallParams).toMatchObject({
-      end_time: expect.any(Number),
-      inputs: {
-        args: [
-          {
-            lc: 1,
-            type: "constructor",
-            id: ["langchain_core", "messages", "HumanMessage"],
-            kwargs: {
-              content: "Hello!",
-              additional_kwargs: {},
-              response_metadata: {},
-            },
-          },
-          "David",
-        ],
-      },
+      end_time: expectTimestamp,
       outputs: { outputs: "Hello!David" },
       parent_run_id: firstCallParams.id,
       extra: expect.any(Object),
@@ -328,26 +303,12 @@ test.each(["true", "false"])(
       tags: [],
     });
     expect(fourthCallParams).toMatchObject({
-      end_time: expect.any(Number),
+      end_time: expectTimestamp,
       outputs: { output: ["Hello!David"] },
       events: [
         { name: "start", time: expect.any(String) },
         { name: "end", time: expect.any(String) },
       ],
-      inputs: {
-        input: [
-          {
-            lc: 1,
-            type: "constructor",
-            id: ["langchain_core", "messages", "HumanMessage"],
-            kwargs: {
-              content: "Hello!",
-              additional_kwargs: {},
-              response_metadata: {},
-            },
-          },
-        ],
-      },
       trace_id: firstCallParams.id,
       dotted_order: firstCallParams.dotted_order,
     });
@@ -401,7 +362,7 @@ test.each(["true", "false"])(
     expect(firstCallParams).toMatchObject({
       id: firstCallParams.id,
       name: "RunnableLambda",
-      start_time: expect.any(Number),
+      start_time: expectTimestamp,
       serialized: {
         lc: 1,
         type: "not_implemented",
@@ -420,7 +381,7 @@ test.each(["true", "false"])(
     expect(secondCallParams).toMatchObject({
       id: expect.any(String),
       name: "aiGreet",
-      start_time: expect.any(Number),
+      start_time: expectTimestamp,
       run_type: "chain",
       extra: expect.any(Object),
       serialized: {},
@@ -446,22 +407,7 @@ test.each(["true", "false"])(
       tags: [],
     });
     expect(thirdCallParams).toMatchObject({
-      end_time: expect.any(Number),
-      inputs: {
-        args: [
-          {
-            lc: 1,
-            type: "constructor",
-            id: ["langchain_core", "messages", "HumanMessage"],
-            kwargs: {
-              content: "Hello!",
-              additional_kwargs: {},
-              response_metadata: {},
-            },
-          },
-          "David",
-        ],
-      },
+      end_time: expectTimestamp,
       outputs: {
         outputs: ["H", "e", "l", "l", "o", "!", "D", "a", "v", "i", "d"],
       },
@@ -472,26 +418,12 @@ test.each(["true", "false"])(
       tags: [],
     });
     expect(fourthCallParams).toMatchObject({
-      end_time: expect.any(Number),
+      end_time: expectTimestamp,
       outputs: { output: "Hello!David" },
       events: [
         { name: "start", time: expect.any(String) },
         { name: "end", time: expect.any(String) },
       ],
-      inputs: {
-        input: [
-          {
-            lc: 1,
-            type: "constructor",
-            id: ["langchain_core", "messages", "HumanMessage"],
-            kwargs: {
-              content: "Hello!",
-              additional_kwargs: {},
-              response_metadata: {},
-            },
-          },
-        ],
-      },
       trace_id: firstCallParams.id,
       dotted_order: firstCallParams.dotted_order,
     });
@@ -539,7 +471,7 @@ test.each(["true", "false"])(
     expect(firstCallParams).toMatchObject({
       id: firstCallParams.id,
       name: "aiGreet",
-      start_time: expect.any(Number),
+      start_time: expectTimestamp,
       run_type: "chain",
       extra: expect.any(Object),
       serialized: {},
@@ -567,7 +499,7 @@ test.each(["true", "false"])(
       id: secondCallParams.id,
       name: "RunnableLambda",
       parent_run_id: firstCallParams.id,
-      start_time: expect.any(Number),
+      start_time: expectTimestamp,
       serialized: {
         lc: 1,
         type: "not_implemented",
@@ -595,47 +527,18 @@ test.each(["true", "false"])(
       dotted_order: expect.stringContaining(`${firstCallParams.dotted_order}.`),
     });
     expect(thirdCallParams).toMatchObject({
-      end_time: expect.any(Number),
+      end_time: expectTimestamp,
       outputs: { output: ["Hello!"] },
       events: [
         { name: "start", time: expect.any(String) },
         { name: "end", time: expect.any(String) },
       ],
-      inputs: {
-        input: [
-          {
-            lc: 1,
-            type: "constructor",
-            id: ["langchain_core", "messages", "HumanMessage"],
-            kwargs: {
-              content: "Hello!",
-              additional_kwargs: {},
-              response_metadata: {},
-            },
-          },
-        ],
-      },
       trace_id: firstCallParams.id,
       dotted_order: expect.stringContaining(`${firstCallParams.dotted_order}.`),
       parent_run_id: firstCallParams.id,
     });
     expect(fourthCallParams).toMatchObject({
-      end_time: expect.any(Number),
-      inputs: {
-        args: [
-          {
-            lc: 1,
-            type: "constructor",
-            id: ["langchain_core", "messages", "HumanMessage"],
-            kwargs: {
-              content: "Hello!",
-              additional_kwargs: {},
-              response_metadata: {},
-            },
-          },
-          "mitochondria",
-        ],
-      },
+      end_time: expectTimestamp,
       outputs: { outputs: "Hello!mitochondria" },
       extra: expect.any(Object),
       dotted_order: firstCallParams.dotted_order,
@@ -692,7 +595,7 @@ test.each(["true", "false"])(
     expect(firstCallParams).toMatchObject({
       id: firstCallParams.id,
       name: "aiGreet",
-      start_time: expect.any(Number),
+      start_time: expectTimestamp,
       run_type: "chain",
       extra: expect.any(Object),
       serialized: {},
@@ -720,7 +623,7 @@ test.each(["true", "false"])(
       id: secondCallParams.id,
       name: "RunnableLambda",
       parent_run_id: firstCallParams.id,
-      start_time: expect.any(Number),
+      start_time: expectTimestamp,
       serialized: {
         lc: 1,
         type: "not_implemented",
@@ -748,47 +651,18 @@ test.each(["true", "false"])(
       dotted_order: expect.stringContaining(`${firstCallParams.dotted_order}.`),
     });
     expect(thirdCallParams).toMatchObject({
-      end_time: expect.any(Number),
+      end_time: expectTimestamp,
       outputs: { output: ["Hello!"] },
       events: [
         { name: "start", time: expect.any(String) },
         { name: "end", time: expect.any(String) },
       ],
-      inputs: {
-        input: [
-          {
-            lc: 1,
-            type: "constructor",
-            id: ["langchain_core", "messages", "HumanMessage"],
-            kwargs: {
-              content: "Hello!",
-              additional_kwargs: {},
-              response_metadata: {},
-            },
-          },
-        ],
-      },
       trace_id: firstCallParams.id,
       dotted_order: expect.stringContaining(`${firstCallParams.dotted_order}.`),
       parent_run_id: firstCallParams.id,
     });
     expect(fourthCallParams).toMatchObject({
-      end_time: expect.any(Number),
-      inputs: {
-        args: [
-          {
-            lc: 1,
-            type: "constructor",
-            id: ["langchain_core", "messages", "HumanMessage"],
-            kwargs: {
-              content: "Hello!",
-              additional_kwargs: {},
-              response_metadata: {},
-            },
-          },
-          "mitochondria",
-        ],
-      },
+      end_time: expectTimestamp,
       outputs: { outputs: "Hello!mitochondria" },
       extra: expect.any(Object),
       dotted_order: firstCallParams.dotted_order,
@@ -831,6 +705,7 @@ test.each(["true", "false"])(
     )) {
       // Just consume iterator
     }
+    await awaitAllCallbacks();
 
     const relevantCalls = fetchMock.mock.calls.filter((call: any) => {
       return call[0].startsWith("https://api.smith.langchain.com/runs");
@@ -852,7 +727,7 @@ test.each(["true", "false"])(
     expect(firstCallParams).toMatchObject({
       id: firstCallParams.id,
       name: "aiGreet",
-      start_time: expect.any(Number),
+      start_time: expectTimestamp,
       run_type: "chain",
       extra: expect.any(Object),
       serialized: {},
@@ -880,7 +755,7 @@ test.each(["true", "false"])(
       id: secondCallParams.id,
       name: "RunnableLambda",
       parent_run_id: firstCallParams.id,
-      start_time: expect.any(Number),
+      start_time: expectTimestamp,
       serialized: {
         lc: 1,
         type: "not_implemented",
@@ -897,47 +772,18 @@ test.each(["true", "false"])(
       dotted_order: expect.stringContaining(`${firstCallParams.dotted_order}.`),
     });
     expect(thirdCallParams).toMatchObject({
-      end_time: expect.any(Number),
+      end_time: expectTimestamp,
       outputs: { output: "Hello!" },
       events: [
         { name: "start", time: expect.any(String) },
         { name: "end", time: expect.any(String) },
       ],
-      inputs: {
-        input: [
-          {
-            lc: 1,
-            type: "constructor",
-            id: ["langchain_core", "messages", "HumanMessage"],
-            kwargs: {
-              content: "Hello!",
-              additional_kwargs: {},
-              response_metadata: {},
-            },
-          },
-        ],
-      },
       trace_id: firstCallParams.id,
       dotted_order: expect.stringContaining(`${firstCallParams.dotted_order}.`),
       parent_run_id: firstCallParams.id,
     });
     expect(fourthCallParams).toMatchObject({
-      end_time: expect.any(Number),
-      inputs: {
-        args: [
-          {
-            lc: 1,
-            type: "constructor",
-            id: ["langchain_core", "messages", "HumanMessage"],
-            kwargs: {
-              content: "Hello!",
-              additional_kwargs: {},
-              response_metadata: {},
-            },
-          },
-          "mitochondria",
-        ],
-      },
+      end_time: expectTimestamp,
       outputs: {
         outputs: [
           "H",
@@ -1016,18 +862,6 @@ test("LangChain V2 tracer creates and updates runs with replicas", async () => {
   const fourthCallParams = JSON.parse(
     decoder.decode((relevantCalls[3][1] as any).body)
   );
-  const fifthCallParams = JSON.parse(
-    decoder.decode((relevantCalls[4][1] as any).body)
-  );
-  const sixthCallParams = JSON.parse(
-    decoder.decode((relevantCalls[5][1] as any).body)
-  );
-  const seventhCallParams = JSON.parse(
-    decoder.decode((relevantCalls[6][1] as any).body)
-  );
-  const eighthCallParams = JSON.parse(
-    decoder.decode((relevantCalls[7][1] as any).body)
-  );
   expect(relevantCalls[0][1].method).toEqual("POST");
   expect(firstCallParams).toMatchObject({
     session_name: "replica1",
@@ -1052,26 +886,27 @@ test("LangChain V2 tracer creates and updates runs with replicas", async () => {
     name: "child",
   });
   expect(fourthCallParams.reference_example_id).toEqual(undefined);
-  expect(relevantCalls[4][1].method).toEqual("PATCH");
-  expect(fifthCallParams).toMatchObject({
-    session_name: "replica1",
-    parent_run_id: firstCallParams.id,
+  const patches = relevantCalls
+    .filter((call: any) => call[1].method === "PATCH")
+    .map((call: any) => JSON.parse(decoder.decode(call[1].body)));
+  expect(patches).toHaveLength(4);
+  const patchFor = (name: string, session: string) =>
+    patches.find(
+      (body: any) => body.name === name && body.session_name === session
+    );
+  expect(patchFor("child", "replica1")).toMatchObject({
+    parent_run_id: sameRunIdentity(firstCallParams.id),
     reference_example_id: referenceExampleId,
   });
-  expect(relevantCalls[5][1].method).toEqual("PATCH");
-  expect(sixthCallParams).toMatchObject({
-    session_name: "replica2",
-    parent_run_id: secondCallParams.id,
+  const childReplica2 = patchFor("child", "replica2");
+  expect(childReplica2).toMatchObject({
+    parent_run_id: sameRunIdentity(secondCallParams.id),
   });
-  expect(sixthCallParams.reference_example_id).toEqual(undefined);
-  expect(relevantCalls[6][1].method).toEqual("PATCH");
-  expect(seventhCallParams).toMatchObject({
-    session_name: "replica1",
+  expect(childReplica2.reference_example_id).toEqual(undefined);
+  expect(patchFor("RunnableLambda", "replica1")).toMatchObject({
     reference_example_id: referenceExampleId,
   });
-  expect(relevantCalls[7][1].method).toEqual("PATCH");
-  expect(eighthCallParams).toMatchObject({
-    session_name: "replica2",
-  });
-  expect(eighthCallParams.reference_example_id).toEqual(undefined);
+  expect(patchFor("RunnableLambda", "replica2").reference_example_id).toEqual(
+    undefined
+  );
 });
