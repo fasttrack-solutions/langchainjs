@@ -8,7 +8,7 @@ const semver = require("semver");
 
 const RELEASE_BRANCH = "release";
 const MAIN_BRANCH = "main";
-const SAFE_TOKEN = /^[A-Za-z0-9._@/+:-]+$/;
+const SAFE_TOKEN = /^[A-Za-z0-9._@/+-]+$/;
 
 function safeToken(value, label) {
   if (typeof value !== "string" || !SAFE_TOKEN.test(value)) {
@@ -147,9 +147,13 @@ async function runYarnRelease(packageDirectory, npm2FACode, tag) {
   return new Promise((resolve, reject) => {
     const workingDirectory = path.join(process.cwd(), packageDirectory);
     const tagArg = tag ? `--npm.tag=${safeToken(tag, "tag")}` : "";
+    const otp = String(npm2FACode ?? "").trim();
+    if (!/^[0-9]{6,8}$/.test(otp)) {
+      throw new Error("Invalid NPM authentication code");
+    }
     const args = [
       "release-it",
-      `--npm.otp=${npm2FACode}`,
+      `--npm.otp=${otp}`,
       tagArg,
       "--config",
       ".release-it.json",

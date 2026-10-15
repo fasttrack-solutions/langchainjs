@@ -18,6 +18,15 @@ export function sqlInt(value: unknown, label = "limit"): number {
   return parsed;
 }
 
+/** Allow a finite number, including embedding components, before interpolation. */
+export function sqlNumber(value: unknown, label = "number"): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid SQL ${label}`);
+  }
+  return parsed;
+}
+
 /** Allow a column type such as TEXT, UUID, or vector(3). */
 export function sqlDataType(value: unknown): string {
   if (typeof value !== "string" || !SQL_DATA_TYPE.test(value.trim())) {

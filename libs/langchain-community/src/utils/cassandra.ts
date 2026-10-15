@@ -16,7 +16,7 @@ import * as os from "node:os";
 const CQL_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const CQL_TYPE = /^[A-Za-z_][A-Za-z0-9_<> ,]*(\([0-9,]+\))?$/;
 const CQL_OPERATOR =
-  /^(=|<|>|<=|>=|!=|IN|CONTAINS KEY|CONTAINS|LIKE|ASC|DESC)$/i;
+  /^(=|<|>|<=|>=|!=|IN|CONTAINS KEY|CONTAINS|LIKE|ASC|DESC|ANN OF)$/i;
 const CQL_SELECT =
   /^[A-Za-z_][A-Za-z0-9_]*(\([A-Za-z_][A-Za-z0-9_]*(,\s*\?)?\))?$/;
 const CQL_INDEX_VALUE =
